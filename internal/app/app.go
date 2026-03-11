@@ -71,8 +71,6 @@ func (a *App) Execute(dir string) error {
 	for _, move := range plan {
 		err := a.executeMove(tx.UUID, move, dir)
 		if err != nil {
-			// Soterischer Fehler-Report: Wir protokollieren den Fehler, brechen aber nicht ab, 
-			// um andere Dateien nicht zu blockieren (Graceful Degradation).
 			fmt.Printf("Fehler bei %s: %v\n", move.SourcePath, err)
 		}
 	}
@@ -81,14 +79,52 @@ func (a *App) Execute(dir string) error {
 	return nil
 }
 
+func (a *App) Rollback(txUUID string) error {
+	tx, err := a.ledger.Get(txUUID)
+	if err != nil {
+		return fmt.Errorf("Transaktion %s nicht gefunden: %v", txUUID, err)
+	}
+
+	if tx.State == "RolledBack" {
+		return fmt.Errorf("Transaktion %s wurde bereits zurückgerollt", txUUID)
+	}
+
+	for _, op := range tx.Ops {
+		err := a.executeRollbackOp(op)
+		if err != nil {
+			fmt.Printf("Rollback-Fehler bei %s: %v\n", op.DestPath, err)
+		}
+	}
+
+	return a.ledger.UpdateTransactionState(txUUID, "RolledBack")
+}
+
+func (a *App) executeRollbackOp(op ledger.Operation) error {
+	// 1. Integrität prüfen (Inversions-Validierung)
+	currentHash, err := calculateHash(op.DestPath)
+	if err != nil {
+		return fmt.Errorf("konnte Hash von %s nicht prüfen: %v", op.DestPath, err)
+	}
+
+	if currentHash != op.FileHash {
+		return fmt.Errorf("Integrität von %s verletzt! Rollback abgebrochen", op.DestPath)
+	}
+
+	// 2. Zurückkopieren
+	if err := copyFile(op.DestPath, op.SourcePath); err != nil {
+		return fmt.Errorf("konnte Datei nicht zurückrollen: %v", err)
+	}
+
+	// 3. Ziel löschen
+	return os.Remove(op.DestPath)
+}
+
 func (a *App) executeMove(txUUID string, move ProposedMove, baseDir string) error {
-	// 1. Ziel-Ordner (Sphäre) sicherstellen
 	targetDir := filepath.Join(baseDir, move.TargetSphere)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("konnte Sphäre %s nicht erstellen: %v", move.TargetSphere, err)
 	}
 
-	// 2. Pre-Move Hash berechnen (Integritäts-Mandat)
 	sourceHash, err := calculateHash(move.SourcePath)
 	if err != nil {
 		return fmt.Errorf("konnte Quell-Hash nicht berechnen: %v", err)
@@ -96,23 +132,20 @@ func (a *App) executeMove(txUUID string, move ProposedMove, baseDir string) erro
 
 	targetPath := filepath.Join(targetDir, filepath.Base(move.SourcePath))
 	
-	// 3. Atomarer Move (oder Copy + Delete für Cross-Filesystem Sicherheit)
 	if err := copyFile(move.SourcePath, targetPath); err != nil {
 		return fmt.Errorf("konnte Datei nicht kopieren: %v", err)
 	}
 
-	// 4. Post-Move Hash verifizieren (Anti-Corruption Mandat)
 	targetHash, err := calculateHash(targetPath)
 	if err != nil {
 		return fmt.Errorf("konnte Ziel-Hash nicht berechnen: %v", err)
 	}
 
 	if sourceHash != targetHash {
-		os.Remove(targetPath) // Korruptes Ziel löschen
+		os.Remove(targetPath)
 		return fmt.Errorf("Hash-Mismatch! Integrität gefährdet: %s != %s", sourceHash, targetHash)
 	}
 
-	// 5. Operation im Ledger protokollieren
 	info, _ := os.Stat(targetPath)
 	op := ledger.Operation{
 		SourcePath: move.SourcePath,
@@ -124,7 +157,6 @@ func (a *App) executeMove(txUUID string, move ProposedMove, baseDir string) erro
 		return fmt.Errorf("konnte Operation nicht im Ledger speichern: %v", err)
 	}
 
-	// 6. Finalisierung: Quelldatei löschen
 	return os.Remove(move.SourcePath)
 }
 

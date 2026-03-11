@@ -124,3 +124,8 @@ func (l *Ledger) GetRecentTransactions(limit int) ([]*Transaction, error) {
 	}
 	return txs, nil
 }
+
+func (l *Ledger) UpdateTransactionState(txUUID string, state string) error {
+	_, err := l.db.Exec("UPDATE transactions SET state = ? WHERE uuid = ?", state, txUUID)
+	return err
+}

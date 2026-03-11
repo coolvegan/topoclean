@@ -76,3 +76,41 @@ func TestExecute(t *testing.T) {
 		t.Error("Keine Operation im Ledger protokolliert")
 	}
 }
+
+func TestRollback(t *testing.T) {
+	// Setup
+	tempHome, _ := os.MkdirTemp("", "topoclean_rollback")
+	defer os.RemoveAll(tempHome)
+	
+	fileName := "important.go"
+	sourcePath := filepath.Join(tempHome, fileName)
+	os.WriteFile(sourcePath, []byte("package main\nfunc main() {}"), 0644)
+
+	l, _ := ledger.New(filepath.Join(tempHome, "ledger.db"))
+	s := scanner.New()
+	v := vector.New()
+	core := app.New(l, s, v)
+
+	// 1. Ausführen
+	core.Execute(tempHome)
+	
+	txs, _ := l.GetRecentTransactions(1)
+	txUUID := txs[0].UUID
+
+	// 2. Rollback
+	err := core.Rollback(txUUID)
+	if err != nil {
+		t.Fatalf("Rollback fehlgeschlagen: %v", err)
+	}
+
+	// 3. Validierung: Datei muss wieder am Ursprungsort sein
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		t.Error("Datei wurde durch Rollback nicht wiederhergestellt")
+	}
+
+	// 4. Validierung: Ziel-Ordner (Sphäre) sollte leer sein (optional)
+	targetPath := filepath.Join(tempHome, "03-Creation", fileName)
+	if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
+		t.Error("Zieldatei existiert nach Rollback immer noch")
+	}
+}
