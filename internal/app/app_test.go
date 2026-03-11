@@ -114,3 +114,34 @@ func TestRollback(t *testing.T) {
 		t.Error("Zieldatei existiert nach Rollback immer noch")
 	}
 }
+
+func TestDeduplication(t *testing.T) {
+	// Setup
+	tempHome, _ := os.MkdirTemp("", "topoclean_dedup")
+	defer os.RemoveAll(tempHome)
+	
+	content := []byte("identischer soterischer inhalt")
+	os.WriteFile(filepath.Join(tempHome, "file1.txt"), content, 0644)
+	os.WriteFile(filepath.Join(tempHome, "file2.txt"), content, 0644)
+
+	l, _ := ledger.New(filepath.Join(tempHome, "ledger.db"))
+	s := scanner.New()
+	v := vector.New()
+	core := app.New(l, s, v)
+
+	// Execute
+	err := core.Execute(tempHome)
+	if err != nil {
+		t.Fatalf("Execute fehlgeschlagen: %v", err)
+	}
+
+	// Verifizierung: 07-Inbox/file1.txt und 07-Inbox/file2.txt sollten Hardlinks sein
+	f1, _ := os.Stat(filepath.Join(tempHome, "07-Inbox", "file1.txt"))
+	f2, _ := os.Stat(filepath.Join(tempHome, "07-Inbox", "file2.txt"))
+
+	// Inodes vergleichen (Linux/Unix spezifisch via Sys)
+	// Wir nutzen os.SameFile, was plattformunabhängig Inodes prüft
+	if !os.SameFile(f1, f2) {
+		t.Error("Deduplizierung fehlgeschlagen: Dateien zeigen nicht auf dieselbe Inode (kein Hardlink)")
+	}
+}

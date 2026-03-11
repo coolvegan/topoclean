@@ -129,3 +129,14 @@ func (l *Ledger) UpdateTransactionState(txUUID string, state string) error {
 	_, err := l.db.Exec("UPDATE transactions SET state = ? WHERE uuid = ?", state, txUUID)
 	return err
 }
+
+func (l *Ledger) GetPathByHash(hash string) (string, error) {
+	var path string
+	// Wir suchen nach dem neuesten Pfad, der diesen Hash hat und noch existiert (stat-check erfolgt in der App)
+	err := l.db.QueryRow("SELECT dest_path FROM operations WHERE file_hash = ? ORDER BY id DESC LIMIT 1", hash).
+		Scan(&path)
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
