@@ -32,8 +32,15 @@ Das Tool scannt nach Verzeichnissen mit hoher Volatilität oder offensichtlichem
 - `fffff/`, `tmp/`, `output/`, `recovered-data/`, `RECOVERDIR/`
 - `bewerbungs-bloat/` (Spezifische Cluster-Erkennung durch Namens-Matching)
 
-### 3.4. Die 'Topologische Signatur'
-Dateien werden nicht nur nach Endung, sondern auch nach Inhalt (Magic Bytes) klassifiziert, um sicherzustellen, dass ein Video ohne Endung im richtigen Vektor landet.
+### 3.4. Die 'Topologische Signatur' (MIME-Awareness)
+Anstatt sich nur auf Dateiendungen zu verlassen, nutzt `topoclean` MIME-Types zur Klassifizierung:
+- **`video/*` & `audio/*`** -> `05-Media` (Konsum)
+- **`image/*`** -> `05-Media` (oder `02-Identity` bei Fotos, konfigurierbar)
+- **`text/x-python`, `text/x-go`, `application/x-ruby`** -> `03-Creation` (Werkstatt)
+- **`application/pdf`, `application/msword`** -> `02-Identity` (Dokumente)
+- **`application/x-executable`, `application/x-sharedlib`** -> `01-Core` oder `04-Archive`
+
+Dies stellt sicher, dass die topologische Invariante (der Inhalt) über die flüchtige Endung triumphiert.
 
 ## 4. Rollback-Mechanismus
 Ein Rollback ist die **Inversion des Vektors**. 
