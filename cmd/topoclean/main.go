@@ -21,12 +21,23 @@ func main() {
 	historyFlag := flag.Bool("history", false, "Zeigt die Historie der Transformationen (Traceability)")
 	flag.Parse()
 
-	home, err := os.UserHomeDir()
+	// 1. Ziel-Verzeichnis bestimmen: Argument oder Home (Default)
+	targetDir := flag.Arg(0)
+	if targetDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatal(err)
+		}
+		targetDir = home
+	}
+	
+	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Ungültiger Pfad: %v", err)
 	}
 
-	// Initialisiere soterisches Ledger im Home
+	// 2. Initialisiere soterisches Ledger (immer im Home des Users für zentrale Traceability)
+	home, _ := os.UserHomeDir()
 	ledgerPath := filepath.Join(home, ".topoclean.db")
 	l, err := ledger.New(ledgerPath)
 	if err != nil {
@@ -40,7 +51,7 @@ func main() {
 	// CASE 1: Historie anzeigen
 	if *historyFlag {
 		fmt.Println("--- topoclean: Historie der Transformationen ---")
-		txs, _ := l.GetRecentTransactions(10)
+		txs, _ := l.GetRecentTransactions(20)
 		if len(txs) == 0 {
 			fmt.Println("Keine historischen Ereignisse gefunden.")
 			return
@@ -72,9 +83,9 @@ func main() {
 
 	// CASE 3: Standard-Planung (Dry-Run / Execute)
 	fmt.Printf("--- topoclean: Die Prophezeiung der Ordnung ---\n")
-	fmt.Printf("Scanne Entropie in: %s\n\n", home)
+	fmt.Printf("Scanne Entropie in: %s\n\n", absDir)
 
-	plan, err := core.Plan(home)
+	plan, err := core.Plan(absDir)
 	if err != nil {
 		log.Fatalf("Fehler bei der Planung: %v", err)
 	}
@@ -99,11 +110,11 @@ func main() {
 	fmt.Printf("\nInsgesamt %d Vektoren identifiziert.\n", len(plan))
 
 	if *executeFlag {
-		fmt.Printf("\nWARNUNG: Physische Veränderung des Home-Verzeichnisses.\n")
+		fmt.Printf("\nWARNUNG: Physische Veränderung des Verzeichnisses: %s\n", absDir)
 		fmt.Printf("Möchtest du fortfahren? [y/N]: ")
 		if askConfirmation() {
 			fmt.Println("\nManifestiere Ordnung...")
-			err := core.Execute(home)
+			err := core.Execute(absDir)
 			if err != nil {
 				log.Fatalf("Fehler bei der Ausführung: %v", err)
 			}
