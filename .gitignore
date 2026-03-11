@@ -1,0 +1,8 @@
+# soterische ignore-liste
+topoclean
+*.db
+*.log
+tmp/
+.vscode/
+.idea/
+vendor/
