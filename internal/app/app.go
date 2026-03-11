@@ -17,7 +17,7 @@ import (
 type ProposedMove struct {
 	SourcePath   string
 	TargetSphere string
-	TargetDir    string // Voller Zielpfad inkl. biographischem Mapping
+	TargetDir    string 
 	MIMEType     string
 }
 
@@ -37,11 +37,9 @@ func New(l *ledger.Ledger, s *scanner.Scanner, v *vector.Vector, cfg *config.Con
 	}
 }
 
-// Plan analysiert alle konfigurierten Zonen und erstellt den globalen soterischen Plan.
 func (a *App) Plan() ([]ProposedMove, error) {
 	var allFiles []scanner.FileInfo
 
-	// 1. Wenn Zonen definiert sind, scanne diese
 	if len(a.config.Zones) > 0 {
 		for _, zone := range a.config.Zones {
 			files, err := a.scanner.Scan(zone.Path, zone.Name)
@@ -52,7 +50,6 @@ func (a *App) Plan() ([]ProposedMove, error) {
 			allFiles = append(allFiles, files...)
 		}
 	} else {
-		// 2. Fallback: Scanne HeptagonRoot (Home)
 		files, err := a.scanner.Scan(a.config.HeptagonRoot, "")
 		if err != nil {
 			return nil, err
@@ -63,8 +60,6 @@ func (a *App) Plan() ([]ProposedMove, error) {
 	var plan []ProposedMove
 	for _, f := range allFiles {
 		sphere := a.vector.Classify(f)
-		
-		// Biographisches Mapping (v1.4)
 		targetDir := filepath.Join(a.config.HeptagonRoot, sphere)
 		if a.config.Mapping.PreserveOrigin && f.ZoneName != "" {
 			dateFolder := time.Now().Format(a.config.Mapping.DateFormat)
@@ -111,6 +106,38 @@ func (a *App) Execute() error {
 	return nil
 }
 
+// Forget verschiebt eine Datei soterisch in den Limbo (04-Archive/.trash)
+func (a *App) Forget(path string) error {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+
+	// 1. Ziel im Archiv bestimmen
+	trashDir := filepath.Join(a.config.HeptagonRoot, "04-Archive", ".trash")
+	if err := os.MkdirAll(trashDir, 0755); err != nil {
+		return err
+	}
+
+	// 2. Transaktion starten
+	tx, err := a.ledger.Begin()
+	if err != nil {
+		return err
+	}
+	tx.State = "PurgeStaged"
+	defer a.ledger.Save(tx)
+
+	// 3. Move ausführen
+	move := ProposedMove{
+		SourcePath:   absPath,
+		TargetSphere: "04-Archive",
+		TargetDir:    trashDir,
+	}
+	
+	// Wir nutzen executeMove ohne Session-Cache für Single-File Operationen
+	return a.executeMove(tx.UUID, move, make(map[string]string))
+}
+
 func (a *App) Rollback(txUUID string) error {
 	tx, err := a.ledger.Get(txUUID)
 	if err != nil {
@@ -151,7 +178,6 @@ func (a *App) executeRollbackOp(op ledger.Operation) error {
 }
 
 func (a *App) executeMove(txUUID string, move ProposedMove, processedHashes map[string]string) error {
-	// Nutze move.TargetDir für das biographische Mapping
 	if err := os.MkdirAll(move.TargetDir, 0755); err != nil {
 		return fmt.Errorf("konnte Ziel-Verzeichnis %s nicht erstellen: %v", move.TargetDir, err)
 	}

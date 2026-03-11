@@ -188,3 +188,41 @@ func TestMultiZoneMapping(t *testing.T) {
 		t.Errorf("Script nicht an erwartetem Ort: %s", expectedScript)
 	}
 }
+
+func TestForget(t *testing.T) {
+	tempRoot, _ := os.MkdirTemp("", "topoclean_forget")
+	defer os.RemoveAll(tempRoot)
+	
+	fileName := "to_be_forgotten.txt"
+	filePath := filepath.Join(tempRoot, fileName)
+	os.WriteFile(filePath, []byte("vergänglicher inhalt"), 0644)
+
+	cfg := &config.Config{HeptagonRoot: tempRoot}
+	l, _ := ledger.New(filepath.Join(tempRoot, "ledger.db"))
+	s := scanner.New()
+	v := vector.New()
+	core := app.New(l, s, v, cfg)
+
+	// Aktion: Vergessen
+	err := core.Forget(filePath)
+	if err != nil {
+		t.Fatalf("Forget fehlgeschlagen: %v", err)
+	}
+
+	// Verifizierung 1: Datei sollte nun im Trash sein
+	trashPath := filepath.Join(tempRoot, "04-Archive", ".trash", fileName)
+	if _, err := os.Stat(trashPath); os.IsNotExist(err) {
+		t.Errorf("Datei nicht im Trash gefunden: %s", trashPath)
+	}
+
+	// Verifizierung 2: Original sollte weg sein
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Error("Originaldatei existiert noch")
+	}
+
+	// Verifizierung 3: Ledger-Status prüfen
+	txs, _ := l.GetRecentTransactions(1)
+	if len(txs) == 0 || txs[0].State != "PurgeStaged" {
+		t.Errorf("Falscher Transaktions-Status im Ledger: %s", txs[0].State)
+	}
+}

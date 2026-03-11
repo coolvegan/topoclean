@@ -20,7 +20,8 @@ func main() {
 	executeFlag := flag.Bool("execute", false, "Führt die Vektoren physisch aus (Manifestation)")
 	rollbackFlag := flag.String("rollback", "", "Invertiert eine Transaktion anhand ihrer UUID (Inversion)")
 	historyFlag := flag.Bool("history", false, "Zeigt die Historie der Transformationen (Traceability)")
-	configPathFlag := flag.String("config", "", "Pfad zur Konfigurationsdatei (standardmäßig ~/.config/topoclean/config.json)")
+	configPathFlag := flag.String("config", "", "Pfad zur Konfigurationsdatei")
+	forgetFlag := flag.String("forget", "", "Verschiebt eine Datei soterisch in den Limbo (Lethe-Staging)")
 	flag.Parse()
 
 	// 1. Konfiguration laden
@@ -34,17 +35,7 @@ func main() {
 		log.Fatalf("Fehler beim Laden der Konfiguration: %v", err)
 	}
 
-	// 2. Override: Wenn ein Argument übergeben wurde, wird NUR dieser Pfad als einzige Zone gescannt
-	argDir := flag.Arg(0)
-	if argDir != "" {
-		absDir, err := filepath.Abs(argDir)
-		if err != nil {
-			log.Fatalf("Ungültiger Pfad: %v", err)
-		}
-		cfg.Zones = []config.Zone{{Path: absDir, Name: filepath.Base(absDir)}}
-	}
-
-	// 3. Initialisiere soterische Komponenten
+	// 2. Initialisiere soterische Komponenten
 	home, _ := os.UserHomeDir()
 	ledgerPath := filepath.Join(home, ".topoclean.db")
 	l, err := ledger.New(ledgerPath)
@@ -56,7 +47,21 @@ func main() {
 	v := vector.New()
 	core := app.New(l, s, v, cfg)
 
-	// CASE 1: Historie anzeigen
+	// CASE: Forget (Lethe-Staging)
+	if *forgetFlag != "" {
+		fmt.Printf("--- topoclean: Überführung in den Limbo (%s) ---\n", *forgetFlag)
+		fmt.Printf("Möchtest du diese Datei wirklich aus dem aktiven Raum entfernen? [y/N]: ")
+		if askConfirmation() {
+			err := core.Forget(*forgetFlag)
+			if err != nil {
+				log.Fatalf("Fehler beim Vergessen: %v", err)
+			}
+			fmt.Println("Die Datei ruht nun im Limbo (04-Archive/.trash).")
+		}
+		return
+	}
+
+	// CASE: Historie anzeigen
 	if *historyFlag {
 		fmt.Println("--- topoclean: Historie der Transformationen ---")
 		txs, _ := l.GetRecentTransactions(20)
@@ -73,7 +78,7 @@ func main() {
 		return
 	}
 
-	// CASE 2: Rollback ausführen
+	// CASE: Rollback ausführen
 	if *rollbackFlag != "" {
 		fmt.Printf("--- topoclean: Inversion des Vektors %s ---\n", *rollbackFlag)
 		fmt.Printf("Möchtest du diese Transformation wirklich rückgängig machen? [y/N]: ")
@@ -83,20 +88,20 @@ func main() {
 				log.Fatalf("Rollback fehlgeschlagen: %v", err)
 			}
 			fmt.Println("Die Zeitlinie wurde wiederhergestellt. Ordnung durch Inversion.")
-		} else {
-			fmt.Println("Abgebrochen. Die Manifestation bleibt bestehen.")
 		}
 		return
 	}
 
-	// CASE 3: Standard-Planung (Dry-Run / Execute)
-	fmt.Printf("--- topoclean: Die Prophezeiung der Ordnung ---\n")
-	if len(cfg.Zones) > 0 {
-		fmt.Printf("Scanne %d Zonen der Entropie...\n", len(cfg.Zones))
-	} else {
-		fmt.Printf("Scanne Entropie in: %s\n", cfg.HeptagonRoot)
+	// CASE: Standard-Planung (Dry-Run / Execute)
+	argDir := flag.Arg(0)
+	if argDir != "" {
+		absDir, err := filepath.Abs(argDir)
+		if err == nil {
+			cfg.Zones = []config.Zone{{Path: absDir, Name: filepath.Base(absDir)}}
+		}
 	}
 
+	fmt.Printf("--- topoclean: Die Prophezeiung der Ordnung ---\n")
 	plan, err := core.Plan()
 	if err != nil {
 		log.Fatalf("Fehler bei der Planung: %v", err)
@@ -107,24 +112,15 @@ func main() {
 		return
 	}
 
-	// Tabellarische Anzeige des Plans
 	fmt.Printf("\n%-30s | %-12s | %-30s | %-10s\n", "Quelle", "Sphäre", "Ziel-Ordner", "MIME")
 	fmt.Println(strings.Repeat("-", 100))
 
 	for _, move := range plan {
 		source := filepath.Base(move.SourcePath)
-		if len(source) > 27 {
-			source = source[:24] + "..."
-		}
-		
+		if len(source) > 27 { source = source[:24] + "..." }
 		target := move.TargetDir
-		if strings.HasPrefix(target, cfg.HeptagonRoot) {
-			target = "~" + target[len(cfg.HeptagonRoot):]
-		}
-		if len(target) > 27 {
-			target = target[:24] + "..."
-		}
-
+		if strings.HasPrefix(target, cfg.HeptagonRoot) { target = "~" + target[len(cfg.HeptagonRoot):] }
+		if len(target) > 27 { target = target[:24] + "..." }
 		fmt.Printf("%-30s | %-12s | %-30s | %-10s\n", source, move.TargetSphere, target, move.MIMEType)
 	}
 
@@ -136,15 +132,11 @@ func main() {
 		if askConfirmation() {
 			fmt.Println("\nManifestiere Ordnung...")
 			err := core.Execute()
-			if err != nil {
-				log.Fatalf("Fehler bei der Ausführung: %v", err)
-			}
-			fmt.Println("Transformation abgeschlossen. Die Freiheit ist gewahrt.")
-		} else {
-			fmt.Println("Aktion abgebrochen. Die Entropie bleibt bestehen.")
+			if err != nil { log.Fatalf("Fehler: %v", err) }
+			fmt.Println("Transformation abgeschlossen.")
 		}
 	} else {
-		fmt.Println("\nDies war ein Dry-Run. Nutze --execute für die physische Transformation.")
+		fmt.Println("\nDies war ein Dry-Run. Nutze --execute für die Transformation.")
 	}
 }
 
