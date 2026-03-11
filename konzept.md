@@ -20,12 +20,15 @@ Jeder Lauf erzeugt eine `transaction.json` (oder SQLite), die folgende Invariant
 - Liste der atomaren Operationen: `SourcePath`, `DestPath`, `FileHash`, `FileSize`.
 - `State`: (Pending, Committed, RolledBack).
 
-### 3.2. Klassifizierungs-Vektoren (Sortier-Logik)
-Anstatt starrer Regeln nutzt `topoclean` ein modulares Set von Filtern:
-- **Media-Vektor:** `.mp4`, `.mkv`, `.mov`, `.png`, `.jpg` -> `~/Videos/Inbox/%Y-%m/` oder `~/Pictures/Inbox/%Y-%m/`
-- **Document-Vektor:** `.pdf`, `.tex`, `.doc*` (Bewerbungen, Rechnungen) -> `~/Documents/Inbox/%Y-%m/`
-- **Snippet-Vektor:** `.go`, `.py`, `.rs`, `.sh`, `.html` (Code-Schnipsel) -> `~/Dev/Snippets/%Y-%m/`
-- **Archive/Package-Vektor:** `.apk`, `.txt` (z.B. Paketlisten), `.container` -> `~/Archive/Inbox/%Y-%m/`
+### 3.2. Vektor-Strategien (Pipeline-Architektur)
+Anstatt einer starren Klassifizierung nutzt `topoclean` eine Kette von spezialisierten Strategien, um Dateien ihren Heptagon-Sphären zuzuordnen:
+
+1.  **MIME-Strategy (Inhalt):** Höchste Priorität. Analysiert die topologische Signatur (`video/*`, `application/pdf`).
+2.  **Extension-Strategy (Form):** Fallback für bekannte Dateiendungen (`.go`, `.py`), falls MIME-Typen zu generisch sind (z.B. `text/plain`).
+3.  **Substring-Strategy (Kontext):** Sucht nach semantischen Mustern im Dateinamen (z.B. `*vault*` -> `01-Core`, `*rechnung*` -> `02-Identity`).
+4.  **Default-Strategy (Ereignishorizont):** Das soterische Auffangbecken für unklassifizierte Entropie (`07-Inbox`).
+
+Diese Pipeline garantiert, dass jede Datei mit maximaler Präzision und minimalem Risiko (∂∂=0) verarbeitet wird.
 
 ### 3.3. Identifizierung von Entropie-Clustern
 Das Tool scannt nach Verzeichnissen mit hoher Volatilität oder offensichtlichem "Temp"-Charakter:
