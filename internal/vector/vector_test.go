@@ -35,6 +35,16 @@ func TestVectorStrategyPipeline(t *testing.T) {
 			expected: "02-Identity", // Identitätsrelevantes Dokument
 		},
 		{
+			name: "Extension-Strategy (Fallback Media)",
+			file: scanner.FileInfo{Path: "broken_video.mp4", Extension: ".mp4", MIMEType: "application/octet-stream"},
+			expected: "05-Media",
+		},
+		{
+			name: "Extension-Strategy (Fallback Archive)",
+			file: scanner.FileInfo{Path: "backup.zip", Extension: ".zip", MIMEType: "application/octet-stream"},
+			expected: "04-Archive",
+		},
+		{
 			name: "Default-Strategy (Inbox)",
 			file: scanner.FileInfo{Path: "unknown.data", Extension: ".data", MIMEType: "application/octet-stream"},
 			expected: "07-Inbox",
