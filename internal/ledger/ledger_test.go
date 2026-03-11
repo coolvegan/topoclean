@@ -1,6 +1,7 @@
 package ledger_test
 
 import (
+	"os"
 	"testing"
 	"github.com/topokrat/topoclean/internal/ledger"
 )
@@ -58,6 +59,35 @@ func TestOperations(t *testing.T) {
 	
 	if loadedTx.Ops[0].SourcePath != op.SourcePath {
 		t.Errorf("SourcePath mismatch: %s != %s", loadedTx.Ops[0].SourcePath, op.SourcePath)
+	}
+}
+
+func TestLocate(t *testing.T) {
+	dbPath := "test_locate.db"
+	l, _ := ledger.New(dbPath)
+	defer os.Remove(dbPath)
+
+	tx, _ := l.Begin()
+	op := ledger.Operation{
+		SourcePath: "/home/marco/my_document.pdf",
+		DestPath:   "/home/marco/02-Identity/my_document.pdf",
+		FileHash:   "abc",
+	}
+	l.AddOperation(tx.UUID, op)
+	l.Save(tx)
+
+	// Suche nach 'document'
+	results, err := l.Locate("document")
+	if err != nil {
+		t.Fatalf("Locate fehlgeschlagen: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("erwartete 1 Ergebnis, erhalten %d", len(results))
+	}
+
+	if results[0].DestPath != op.DestPath {
+		t.Errorf("falscher Pfad gefunden: %s", results[0].DestPath)
 	}
 }
 

@@ -134,8 +134,23 @@ func (a *App) Forget(path string) error {
 		TargetDir:    trashDir,
 	}
 	
-	// Wir nutzen executeMove ohne Session-Cache für Single-File Operationen
 	return a.executeMove(tx.UUID, move, make(map[string]string))
+}
+
+func (a *App) Locate(pattern string) ([]ledger.Operation, error) {
+	results, err := a.ledger.Locate(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter: Nur Dateien, die physikalisch noch existieren
+	var activeResults []ledger.Operation
+	for _, res := range results {
+		if _, err := os.Stat(res.DestPath); err == nil {
+			activeResults = append(activeResults, res)
+		}
+	}
+	return activeResults, nil
 }
 
 func (a *App) Rollback(txUUID string) error {

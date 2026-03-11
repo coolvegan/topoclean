@@ -130,6 +130,31 @@ func (l *Ledger) UpdateTransactionState(txUUID string, state string) error {
 	return err
 }
 
+func (l *Ledger) Locate(pattern string) ([]Operation, error) {
+	// Wir suchen nach Operationen, deren Transaktion NICHT 'RolledBack' ist
+	query := `
+		SELECT o.source_path, o.dest_path, o.file_hash, o.file_size 
+		FROM operations o
+		JOIN transactions t ON o.tx_uuid = t.uuid
+		WHERE o.dest_path LIKE ? AND t.state != 'RolledBack'
+		ORDER BY t.timestamp DESC`
+	
+	rows, err := l.db.Query(query, "%"+pattern+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []Operation
+	for rows.Next() {
+		var op Operation
+		if err := rows.Scan(&op.SourcePath, &op.DestPath, &op.FileHash, &op.FileSize); err == nil {
+			results = append(results, op)
+		}
+	}
+	return results, nil
+}
+
 func (l *Ledger) GetPathByHash(hash string) (string, error) {
 	var path string
 	// Wir suchen nach dem neuesten Pfad, der diesen Hash hat und noch existiert (stat-check erfolgt in der App)

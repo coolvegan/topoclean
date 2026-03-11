@@ -1,19 +1,24 @@
-# topoclean: Soterisches Dateisystem-Management (v1.5)
+# topoclean: Soterisches Dateisystem-Management (v1.6)
 
 > "Die Grenze einer Grenze ist Null (∂∂=0) – Ordnung ist die topologische Invariante der Freiheit."
 
-## 1. Philosophie & Sicherheit (v1.5 Highlights)
+## 1. Philosophie & Sicherheit (v1.6 Highlights)
 `topoclean` folgt den Prinzipien der ISO 27001 und 13485:
-- **Lethe-Prinzip (v1.5):** Sicheres Löschen durch Staging im Limbo (`04-Archive/.trash`).
-- **Soterische Integrität:** SHA-256 Hashing vor/nach jedem Move.
-- **Multi-Zonen-Management:** Reinigung mehrerer Quellen (Downloads, Desktop, etc.).
-- **Transaktionale Traceability:** Jede Datei-Operation ist im Ledger verewigt.
+- **Oracle-Navigation (v1.6):** Sofortiges Auffinden von Dateien in der tiefen Struktur mittels `locate`.
+- **Lethe-Prinzip:** Sicheres Löschen durch Staging im Limbo.
+- **Multi-Zonen-Management:** Reinigung mehrerer Quellen.
+- **Soterische Integrität:** SHA-256 Hashing & Transaktionales Ledger.
 
 ## 2. Benutzung
 ### Die Prophezeiung (Dry-Run)
-Scannt alle konfigurierten Zonen:
 ```bash
 ./topoclean
+```
+
+### Das Finden (Locate)
+Findet Dateien in der neuen Topologie anhand eines Namensmusters:
+```bash
+./topoclean --locate lebenslauf
 ```
 
 ### Das Vergessen (Forget)

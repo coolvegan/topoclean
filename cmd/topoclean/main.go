@@ -22,6 +22,7 @@ func main() {
 	historyFlag := flag.Bool("history", false, "Zeigt die Historie der Transformationen (Traceability)")
 	configPathFlag := flag.String("config", "", "Pfad zur Konfigurationsdatei")
 	forgetFlag := flag.String("forget", "", "Verschiebt eine Datei soterisch in den Limbo (Lethe-Staging)")
+	locateFlag := flag.String("locate", "", "Findet Dateien in der neuen Topologie anhand eines Musters (Oracle)")
 	flag.Parse()
 
 	// 1. Konfiguration laden
@@ -46,6 +47,31 @@ func main() {
 	s := scanner.New()
 	v := vector.New()
 	core := app.New(l, s, v, cfg)
+
+	// CASE: Locate (Oracle)
+	if *locateFlag != "" {
+		results, err := core.Locate(*locateFlag)
+		if err != nil {
+			log.Fatalf("Suche fehlgeschlagen: %v", err)
+		}
+		if len(results) == 0 {
+			fmt.Printf("Keine aktiven Dateien für Muster '%s' gefunden.\n", *locateFlag)
+			return
+		}
+		fmt.Printf("--- topoclean Oracle: %d Treffer für '%s' ---\n", len(results), *locateFlag)
+		fmt.Printf("%-40s | %-60s\n", "Dateiname", "Aktueller Pfad (Sphäre)")
+		fmt.Println(strings.Repeat("-", 105))
+		for _, res := range results {
+			name := filepath.Base(res.DestPath)
+			if len(name) > 37 { name = name[:34] + "..." }
+			path := res.DestPath
+			if strings.HasPrefix(path, cfg.HeptagonRoot) {
+				path = "~" + path[len(cfg.HeptagonRoot):]
+			}
+			fmt.Printf("%-40s | %-60s\n", name, path)
+		}
+		return
+	}
 
 	// CASE: Forget (Lethe-Staging)
 	if *forgetFlag != "" {
