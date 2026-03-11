@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/topokrat/topoclean/internal/app"
+	"github.com/topokrat/topoclean/internal/config"
 	"github.com/topokrat/topoclean/internal/ledger"
 	"github.com/topokrat/topoclean/internal/scanner"
 	"github.com/topokrat/topoclean/internal/vector"
@@ -19,24 +20,31 @@ func main() {
 	executeFlag := flag.Bool("execute", false, "Führt die Vektoren physisch aus (Manifestation)")
 	rollbackFlag := flag.String("rollback", "", "Invertiert eine Transaktion anhand ihrer UUID (Inversion)")
 	historyFlag := flag.Bool("history", false, "Zeigt die Historie der Transformationen (Traceability)")
+	configPathFlag := flag.String("config", "", "Pfad zur Konfigurationsdatei (standardmäßig ~/.config/topoclean/config.json)")
 	flag.Parse()
 
-	// 1. Ziel-Verzeichnis bestimmen: Argument oder Home (Default)
-	targetDir := flag.Arg(0)
-	if targetDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			log.Fatal(err)
-		}
-		targetDir = home
+	// 1. Konfiguration laden
+	cfgPath := *configPathFlag
+	if cfgPath == "" {
+		home, _ := os.UserHomeDir()
+		cfgPath = filepath.Join(home, ".config", "topoclean", "config.json")
 	}
-	
-	absDir, err := filepath.Abs(targetDir)
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		log.Fatalf("Ungültiger Pfad: %v", err)
+		log.Fatalf("Fehler beim Laden der Konfiguration: %v", err)
 	}
 
-	// 2. Initialisiere soterisches Ledger (immer im Home des Users für zentrale Traceability)
+	// 2. Override: Wenn ein Argument übergeben wurde, wird NUR dieser Pfad als einzige Zone gescannt
+	argDir := flag.Arg(0)
+	if argDir != "" {
+		absDir, err := filepath.Abs(argDir)
+		if err != nil {
+			log.Fatalf("Ungültiger Pfad: %v", err)
+		}
+		cfg.Zones = []config.Zone{{Path: absDir, Name: filepath.Base(absDir)}}
+	}
+
+	// 3. Initialisiere soterische Komponenten
 	home, _ := os.UserHomeDir()
 	ledgerPath := filepath.Join(home, ".topoclean.db")
 	l, err := ledger.New(ledgerPath)
@@ -46,7 +54,7 @@ func main() {
 
 	s := scanner.New()
 	v := vector.New()
-	core := app.New(l, s, v)
+	core := app.New(l, s, v, cfg)
 
 	// CASE 1: Historie anzeigen
 	if *historyFlag {
@@ -83,38 +91,51 @@ func main() {
 
 	// CASE 3: Standard-Planung (Dry-Run / Execute)
 	fmt.Printf("--- topoclean: Die Prophezeiung der Ordnung ---\n")
-	fmt.Printf("Scanne Entropie in: %s\n\n", absDir)
+	if len(cfg.Zones) > 0 {
+		fmt.Printf("Scanne %d Zonen der Entropie...\n", len(cfg.Zones))
+	} else {
+		fmt.Printf("Scanne Entropie in: %s\n", cfg.HeptagonRoot)
+	}
 
-	plan, err := core.Plan(absDir)
+	plan, err := core.Plan()
 	if err != nil {
 		log.Fatalf("Fehler bei der Planung: %v", err)
 	}
 
 	if len(plan) == 0 {
-		fmt.Println("Kein Rauschen gefunden. Die Topologie ist stabil.")
+		fmt.Println("\nKein Rauschen gefunden. Die Topologie ist stabil.")
 		return
 	}
 
 	// Tabellarische Anzeige des Plans
-	fmt.Printf("%-40s | %-15s | %-20s\n", "Quelle", "Ziel-Sphäre", "MIME-Type")
-	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("\n%-30s | %-12s | %-30s | %-10s\n", "Quelle", "Sphäre", "Ziel-Ordner", "MIME")
+	fmt.Println(strings.Repeat("-", 100))
 
 	for _, move := range plan {
 		source := filepath.Base(move.SourcePath)
-		if len(source) > 37 {
-			source = source[:34] + "..."
+		if len(source) > 27 {
+			source = source[:24] + "..."
 		}
-		fmt.Printf("%-40s | %-15s | %-20s\n", source, move.TargetSphere, move.MIMEType)
+		
+		target := move.TargetDir
+		if strings.HasPrefix(target, cfg.HeptagonRoot) {
+			target = "~" + target[len(cfg.HeptagonRoot):]
+		}
+		if len(target) > 27 {
+			target = target[:24] + "..."
+		}
+
+		fmt.Printf("%-30s | %-12s | %-30s | %-10s\n", source, move.TargetSphere, target, move.MIMEType)
 	}
 
 	fmt.Printf("\nInsgesamt %d Vektoren identifiziert.\n", len(plan))
 
 	if *executeFlag {
-		fmt.Printf("\nWARNUNG: Physische Veränderung des Verzeichnisses: %s\n", absDir)
+		fmt.Printf("\nWARNUNG: Physische Veränderung der Topologie.\n")
 		fmt.Printf("Möchtest du fortfahren? [y/N]: ")
 		if askConfirmation() {
 			fmt.Println("\nManifestiere Ordnung...")
-			err := core.Execute(absDir)
+			err := core.Execute()
 			if err != nil {
 				log.Fatalf("Fehler bei der Ausführung: %v", err)
 			}

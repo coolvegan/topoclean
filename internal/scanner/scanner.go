@@ -12,6 +12,7 @@ type FileInfo struct {
 	Size      int64
 	Extension string
 	MIMEType  string
+	ZoneName  string // Neu: Biographische Herkunft
 }
 
 type Scanner struct {
@@ -21,7 +22,7 @@ func New() *Scanner {
 	return &Scanner{}
 }
 
-func (s *Scanner) Scan(dir string) ([]FileInfo, error) {
+func (s *Scanner) Scan(dir string, zoneName string) ([]FileInfo, error) {
 	var found []FileInfo
 	
 	entries, err := os.ReadDir(dir)
@@ -52,6 +53,7 @@ func (s *Scanner) Scan(dir string) ([]FileInfo, error) {
 			Size:      info.Size(),
 			Extension: filepath.Ext(name),
 			MIMEType:  mime,
+			ZoneName:  zoneName,
 		})
 	}
 

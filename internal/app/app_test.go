@@ -4,27 +4,30 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 	"github.com/topokrat/topoclean/internal/app"
+	"github.com/topokrat/topoclean/internal/config"
 	"github.com/topokrat/topoclean/internal/ledger"
 	"github.com/topokrat/topoclean/internal/scanner"
 	"github.com/topokrat/topoclean/internal/vector"
 )
 
 func TestDryRun(t *testing.T) {
-	// Setup
 	tempDir, _ := os.MkdirTemp("", "topoclean_app_test")
 	defer os.RemoveAll(tempDir)
 	
-	// Erstelle eine Testdatei (Video)
 	jpegMagic := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46}
 	os.WriteFile(filepath.Join(tempDir, "image.jpg"), jpegMagic, 0644)
+
+	cfg, _ := config.Load("")
+	cfg.HeptagonRoot = tempDir // Simuliere Root im Temp-Dir
 
 	l, _ := ledger.New(filepath.Join(tempDir, "ledger.db"))
 	s := scanner.New()
 	v := vector.New()
 	
-	core := app.New(l, s, v)
-	report, err := core.Plan(tempDir)
+	core := app.New(l, s, v, cfg)
+	report, err := core.Plan()
 	if err != nil {
 		t.Fatalf("Planung fehlgeschlagen: %v", err)
 	}
@@ -39,7 +42,6 @@ func TestDryRun(t *testing.T) {
 }
 
 func TestExecute(t *testing.T) {
-	// Setup: Temporäres Home und Testdatei
 	tempHome, _ := os.MkdirTemp("", "topoclean_home_execute")
 	defer os.RemoveAll(tempHome)
 	
@@ -47,30 +49,28 @@ func TestExecute(t *testing.T) {
 	sourcePath := filepath.Join(tempHome, fileName)
 	os.WriteFile(sourcePath, []byte("%PDF-1.4\nsoterisches dokument"), 0644)
 
-	// Initialisiere App
+	cfg, _ := config.Load("")
+	cfg.HeptagonRoot = tempHome
+
 	l, _ := ledger.New(filepath.Join(tempHome, "ledger.db"))
 	s := scanner.New()
 	v := vector.New()
-	core := app.New(l, s, v)
+	core := app.New(l, s, v, cfg)
 
-	// Führe Execute aus
-	err := core.Execute(tempHome)
+	err := core.Execute()
 	if err != nil {
 		t.Fatalf("Execute fehlgeschlagen: %v", err)
 	}
 
-	// Validierung 1: Datei sollte nun in 02-Identity/ liegen (da .pdf)
 	targetPath := filepath.Join(tempHome, "02-Identity", fileName)
 	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
 		t.Errorf("Datei wurde nicht nach %s verschoben", targetPath)
 	}
 
-	// Validierung 2: Quelldatei sollte weg sein
 	if _, err := os.Stat(sourcePath); !os.IsNotExist(err) {
 		t.Error("Quelldatei existiert noch am Ursprungsort")
 	}
 
-	// Validierung 3: Ledger sollte die Operation enthalten
 	txs, _ := l.GetRecentTransactions(1)
 	if len(txs) == 0 || len(txs[0].Ops) == 0 {
 		t.Error("Keine Operation im Ledger protokolliert")
@@ -78,7 +78,6 @@ func TestExecute(t *testing.T) {
 }
 
 func TestRollback(t *testing.T) {
-	// Setup
 	tempHome, _ := os.MkdirTemp("", "topoclean_rollback")
 	defer os.RemoveAll(tempHome)
 	
@@ -86,29 +85,28 @@ func TestRollback(t *testing.T) {
 	sourcePath := filepath.Join(tempHome, fileName)
 	os.WriteFile(sourcePath, []byte("package main\nfunc main() {}"), 0644)
 
+	cfg, _ := config.Load("")
+	cfg.HeptagonRoot = tempHome
+
 	l, _ := ledger.New(filepath.Join(tempHome, "ledger.db"))
 	s := scanner.New()
 	v := vector.New()
-	core := app.New(l, s, v)
+	core := app.New(l, s, v, cfg)
 
-	// 1. Ausführen
-	core.Execute(tempHome)
+	core.Execute()
 	
 	txs, _ := l.GetRecentTransactions(1)
 	txUUID := txs[0].UUID
 
-	// 2. Rollback
 	err := core.Rollback(txUUID)
 	if err != nil {
 		t.Fatalf("Rollback fehlgeschlagen: %v", err)
 	}
 
-	// 3. Validierung: Datei muss wieder am Ursprungsort sein
 	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
 		t.Error("Datei wurde durch Rollback nicht wiederhergestellt")
 	}
 
-	// 4. Validierung: Ziel-Ordner (Sphäre) sollte leer sein (optional)
 	targetPath := filepath.Join(tempHome, "03-Creation", fileName)
 	if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
 		t.Error("Zieldatei existiert nach Rollback immer noch")
@@ -116,7 +114,6 @@ func TestRollback(t *testing.T) {
 }
 
 func TestDeduplication(t *testing.T) {
-	// Setup
 	tempHome, _ := os.MkdirTemp("", "topoclean_dedup")
 	defer os.RemoveAll(tempHome)
 	
@@ -124,24 +121,70 @@ func TestDeduplication(t *testing.T) {
 	os.WriteFile(filepath.Join(tempHome, "file1.txt"), content, 0644)
 	os.WriteFile(filepath.Join(tempHome, "file2.txt"), content, 0644)
 
+	cfg, _ := config.Load("")
+	cfg.HeptagonRoot = tempHome
+
 	l, _ := ledger.New(filepath.Join(tempHome, "ledger.db"))
 	s := scanner.New()
 	v := vector.New()
-	core := app.New(l, s, v)
+	core := app.New(l, s, v, cfg)
 
-	// Execute
-	err := core.Execute(tempHome)
+	err := core.Execute()
 	if err != nil {
 		t.Fatalf("Execute fehlgeschlagen: %v", err)
 	}
 
-	// Verifizierung: 07-Inbox/file1.txt und 07-Inbox/file2.txt sollten Hardlinks sein
 	f1, _ := os.Stat(filepath.Join(tempHome, "07-Inbox", "file1.txt"))
 	f2, _ := os.Stat(filepath.Join(tempHome, "07-Inbox", "file2.txt"))
 
-	// Inodes vergleichen (Linux/Unix spezifisch via Sys)
-	// Wir nutzen os.SameFile, was plattformunabhängig Inodes prüft
 	if !os.SameFile(f1, f2) {
 		t.Error("Deduplizierung fehlgeschlagen: Dateien zeigen nicht auf dieselbe Inode (kein Hardlink)")
+	}
+}
+
+func TestMultiZoneMapping(t *testing.T) {
+	tempRoot, _ := os.MkdirTemp("", "topoclean_multizone")
+	defer os.RemoveAll(tempRoot)
+	
+	// Erzeuge Zonen
+	downloadsDir := filepath.Join(tempRoot, "Downloads")
+	desktopDir := filepath.Join(tempRoot, "Desktop")
+	os.MkdirAll(downloadsDir, 0755)
+	os.MkdirAll(desktopDir, 0755)
+	
+	os.WriteFile(filepath.Join(downloadsDir, "video.mp4"), []byte("video data"), 0644)
+	os.WriteFile(filepath.Join(desktopDir, "script.py"), []byte("python code"), 0644)
+
+	cfg := &config.Config{
+		HeptagonRoot: tempRoot,
+		Zones: []config.Zone{
+			{Path: downloadsDir, Name: "Downloads"},
+			{Path: desktopDir, Name: "Desktop"},
+		},
+		Mapping: config.Mapping{
+			PreserveOrigin: true,
+			DateFormat:     "2006-01",
+		},
+	}
+
+	l, _ := ledger.New(filepath.Join(tempRoot, "ledger.db"))
+	s := scanner.New()
+	v := vector.New()
+	core := app.New(l, s, v, cfg)
+
+	err := core.Execute()
+	if err != nil {
+		t.Fatalf("Execute fehlgeschlagen: %v", err)
+	}
+
+	// Verifizierung
+	expectedVideo := filepath.Join(tempRoot, "05-Media", "From-Downloads", time.Now().Format("2006-01"), "video.mp4")
+	if _, err := os.Stat(expectedVideo); os.IsNotExist(err) {
+		t.Errorf("Video nicht an erwartetem Ort: %s", expectedVideo)
+	}
+
+	expectedScript := filepath.Join(tempRoot, "03-Creation", "From-Desktop", time.Now().Format("2006-01"), "script.py")
+	if _, err := os.Stat(expectedScript); os.IsNotExist(err) {
+		t.Errorf("Script nicht an erwartetem Ort: %s", expectedScript)
 	}
 }

@@ -24,13 +24,17 @@ func TestScanWithMIME(t *testing.T) {
 	}
 
 	s := scanner.New()
-	found, err := s.Scan(tempDir)
+	found, err := s.Scan(tempDir, "TestZone")
 	if err != nil {
 		t.Fatalf("Scan fehlgeschlagen: %v", err)
 	}
 
 	if len(found) != 1 {
 		t.Fatalf("erwartete 1 Datei, gefunden: %d", len(found))
+	}
+
+	if found[0].ZoneName != "TestZone" {
+		t.Errorf("erwarteter ZoneName 'TestZone', erhalten: %s", found[0].ZoneName)
 	}
 
 	// Wir erwarten, dass der Scanner den MIME-Type erkannt hat

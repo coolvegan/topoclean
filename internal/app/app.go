@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/topokrat/topoclean/internal/config"
 	"github.com/topokrat/topoclean/internal/ledger"
 	"github.com/topokrat/topoclean/internal/scanner"
 	"github.com/topokrat/topoclean/internal/vector"
@@ -15,6 +17,7 @@ import (
 type ProposedMove struct {
 	SourcePath   string
 	TargetSphere string
+	TargetDir    string // Voller Zielpfad inkl. biographischem Mapping
 	MIMEType     string
 }
 
@@ -22,28 +25,56 @@ type App struct {
 	ledger  *ledger.Ledger
 	scanner *scanner.Scanner
 	vector  *vector.Vector
+	config  *config.Config
 }
 
-func New(l *ledger.Ledger, s *scanner.Scanner, v *vector.Vector) *App {
+func New(l *ledger.Ledger, s *scanner.Scanner, v *vector.Vector, cfg *config.Config) *App {
 	return &App{
 		ledger:  l,
 		scanner: s,
 		vector:  v,
+		config:  cfg,
 	}
 }
 
-func (a *App) Plan(dir string) ([]ProposedMove, error) {
-	files, err := a.scanner.Scan(dir)
-	if err != nil {
-		return nil, err
+// Plan analysiert alle konfigurierten Zonen und erstellt den globalen soterischen Plan.
+func (a *App) Plan() ([]ProposedMove, error) {
+	var allFiles []scanner.FileInfo
+
+	// 1. Wenn Zonen definiert sind, scanne diese
+	if len(a.config.Zones) > 0 {
+		for _, zone := range a.config.Zones {
+			files, err := a.scanner.Scan(zone.Path, zone.Name)
+			if err != nil {
+				fmt.Printf("Warnung: Konnte Zone %s (%s) nicht scannen: %v\n", zone.Name, zone.Path, err)
+				continue
+			}
+			allFiles = append(allFiles, files...)
+		}
+	} else {
+		// 2. Fallback: Scanne HeptagonRoot (Home)
+		files, err := a.scanner.Scan(a.config.HeptagonRoot, "")
+		if err != nil {
+			return nil, err
+		}
+		allFiles = append(allFiles, files...)
 	}
 
 	var plan []ProposedMove
-	for _, f := range files {
+	for _, f := range allFiles {
 		sphere := a.vector.Classify(f)
+		
+		// Biographisches Mapping (v1.4)
+		targetDir := filepath.Join(a.config.HeptagonRoot, sphere)
+		if a.config.Mapping.PreserveOrigin && f.ZoneName != "" {
+			dateFolder := time.Now().Format(a.config.Mapping.DateFormat)
+			targetDir = filepath.Join(targetDir, "From-"+f.ZoneName, dateFolder)
+		}
+
 		plan = append(plan, ProposedMove{
 			SourcePath:   f.Path,
 			TargetSphere: sphere,
+			TargetDir:    targetDir,
 			MIMEType:     f.MIMEType,
 		})
 	}
@@ -51,8 +82,8 @@ func (a *App) Plan(dir string) ([]ProposedMove, error) {
 	return plan, nil
 }
 
-func (a *App) Execute(dir string) error {
-	plan, err := a.Plan(dir)
+func (a *App) Execute() error {
+	plan, err := a.Plan()
 	if err != nil {
 		return err
 	}
@@ -67,11 +98,10 @@ func (a *App) Execute(dir string) error {
 	}
 	defer a.ledger.Save(tx)
 
-	// Session-Cache für In-Flight Deduplizierung
 	processedHashes := make(map[string]string)
 
 	for _, move := range plan {
-		err := a.executeMove(tx.UUID, move, dir, processedHashes)
+		err := a.executeMove(tx.UUID, move, processedHashes)
 		if err != nil {
 			fmt.Printf("Fehler bei %s: %v\n", move.SourcePath, err)
 		}
@@ -111,7 +141,6 @@ func (a *App) executeRollbackOp(op ledger.Operation) error {
 		return fmt.Errorf("Integrität von %s verletzt! Rollback abgebrochen", op.DestPath)
 	}
 
-	// Falls Source bereits existiert (z.B. durch anderen Rollback derselben Datei), löschen wir nur das Ziel
 	if _, err := os.Stat(op.SourcePath); os.IsNotExist(err) {
 		if err := copyFile(op.DestPath, op.SourcePath); err != nil {
 			return fmt.Errorf("konnte Datei nicht zurückrollen: %v", err)
@@ -121,10 +150,10 @@ func (a *App) executeRollbackOp(op ledger.Operation) error {
 	return os.Remove(op.DestPath)
 }
 
-func (a *App) executeMove(txUUID string, move ProposedMove, baseDir string, processedHashes map[string]string) error {
-	targetDir := filepath.Join(baseDir, move.TargetSphere)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return fmt.Errorf("konnte Sphäre %s nicht erstellen: %v", move.TargetSphere, err)
+func (a *App) executeMove(txUUID string, move ProposedMove, processedHashes map[string]string) error {
+	// Nutze move.TargetDir für das biographische Mapping
+	if err := os.MkdirAll(move.TargetDir, 0755); err != nil {
+		return fmt.Errorf("konnte Ziel-Verzeichnis %s nicht erstellen: %v", move.TargetDir, err)
 	}
 
 	sourceHash, err := calculateHash(move.SourcePath)
@@ -132,18 +161,13 @@ func (a *App) executeMove(txUUID string, move ProposedMove, baseDir string, proc
 		return fmt.Errorf("konnte Quell-Hash nicht berechnen: %v", err)
 	}
 
-	targetPath := filepath.Join(targetDir, filepath.Base(move.SourcePath))
+	targetPath := filepath.Join(move.TargetDir, filepath.Base(move.SourcePath))
 	
-	// --- Soterische Deduplizierung (Hardlinks) ---
 	var existingPath string
-	
-	// 1. In dieser Session prüfen
 	if path, ok := processedHashes[sourceHash]; ok {
 		existingPath = path
 	} else {
-		// 2. Im historischen Ledger prüfen
 		if path, err := a.ledger.GetPathByHash(sourceHash); err == nil {
-			// Prüfen, ob die Datei am historischen Ort noch existiert
 			if _, err := os.Stat(path); err == nil {
 				existingPath = path
 			}
@@ -151,15 +175,12 @@ func (a *App) executeMove(txUUID string, move ProposedMove, baseDir string, proc
 	}
 
 	if existingPath != "" && existingPath != targetPath {
-		// Manifestiere Identität durch Hardlink statt Kopie
 		if err := os.Link(existingPath, targetPath); err == nil {
 			processedHashes[sourceHash] = targetPath
 			return a.finalizeMove(txUUID, move.SourcePath, targetPath, sourceHash)
 		}
-		// Fallback zu Kopie, falls Link fehlschlägt (z.B. Cross-Device)
 	}
 
-	// Standard-Move (Copy + Verify)
 	if err := copyFile(move.SourcePath, targetPath); err != nil {
 		return fmt.Errorf("konnte Datei nicht kopieren: %v", err)
 	}
